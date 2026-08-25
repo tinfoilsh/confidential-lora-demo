@@ -1,0 +1,74 @@
+cvm-version: 0.11.0
+cpus: 16
+memory: 65536
+gpus: 1
+
+networks:
+  nvidia:
+    egress: allowlist
+    allow:
+      - edge.urm.nvidia.com
+      - openaipublic.blob.core.windows.net
+
+models:
+  - name: "gpt-oss-20b"
+    repo: "openai/gpt-oss-20b@6cee5e81ee83917806bbde320786a8fb61efebee"
+    mpk: "fa8945a2fd0ffe7ddfd31b5da869e2c7c045c971e0230e2fd500fc125315f0bf_41301471232_8b6516c9-adf7-5235-a86a-f135dba359c1"
+  - name: "text2sql-adapter"
+    repo: "jeeejeee/gpt-oss-20b-lora-adapter-text2sql@350316a431685d3c5efd01df389c98e0d9d70aa7"
+    mpk: "930f38b39d8307b702cee602c71de8c195da7a5c7d502719ebcf2fc37fedbcc8_182267904_27cb3965-73b4-51d6-a710-8ed3a441d301"
+
+containers:
+  - name: "gpt-oss-20b-lora"
+    image: "vllm/vllm-openai:v0.27.0-ubuntu2404@sha256:ad9c99bccd0a106a9b76817dadd56ad7813a662a929b472ce35bdaa71396ed06"
+    runtime: nvidia
+    gpus: all
+    restart: always
+    env:
+      - PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+      - NUMBA_CACHE_DIR: "/root/numba-cache"
+    command:
+      [
+        "--model",
+        "/tinfoil/mpk/mpk-fa8945a2fd0ffe7ddfd31b5da869e2c7c045c971e0230e2fd500fc125315f0bf",
+        "--served-model-name",
+        "gpt-oss-20b",
+        "--enable-lora",
+        "--max-loras",
+        "4",
+        "--max-lora-rank",
+        "8",
+        "--lora-modules",
+        "gpt-oss-20b-text2sql=/tinfoil/mpk/mpk-930f38b39d8307b702cee602c71de8c195da7a5c7d502719ebcf2fc37fedbcc8",
+        "--enable-auto-tool-choice",
+        "--tool-call-parser",
+        "openai",
+        "--gpu-memory-utilization",
+        "0.90",
+        "--port",
+        "8001",
+      ]
+    tmpfs:
+      /tmp: size=512m,mode=1777,exec
+      /root: size=4g,mode=0700,exec
+      /usr/local/lib/python3.12/dist-packages/flashinfer_cubin/cubins: size=2g,mode=1777,exec
+    networks: ["nvidia"]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30m
+
+shim:
+  upstream-port: 8001
+  authenticated: true
+  authenticated-endpoints:
+    - /v1/chat/completions
+    - /v1/completions
+    - /metrics
+  paths:
+    - /v1/chat/completions
+    - /v1/completions
+    - /v1/models
+    - /health
+    - /metrics
